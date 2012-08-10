@@ -20,6 +20,7 @@
 </style>
 <body>
   <div class="count"></div>
+<script src="document-redraw.js"></script>
 <script>
   // shim layer with setTimeout fallback
   window.requestAnimFrame = (function(){
@@ -43,7 +44,7 @@
     return isTouchDevice ? event.touches[0].pageY : event.pageY;
   }
   
-  function Bubble(id, x, y, vx, vy){
+  function Bubble(id, x, y, vx, vy, remove){
     this.canvas = document.createElement('canvas');
     this.canvas.id = id;
     this.ctx = this.canvas.getContext('2d');
@@ -51,8 +52,8 @@
     this.startY = this.y = y;
     this.vx = vx;
     this.vy = vy;
-    this.maxRadius = 34;
-    this.color = 'hsl('+ [Math.random()*360, '100%', '50%'].join(", ") + ')';
+    this.maxRadius = 55;
+    this.remove = remove;
     this.generate();
   }
   
@@ -60,18 +61,29 @@
     generate : function(){
       var angle = Math.PI * Math.random();
       
-      this.targetDistance = 10 + Math.random() * 150;
+      this.targetDistance = 10 + Math.random() * 144;
       this.distance = 0;
       
-      this.targetX = 0.5*-Math.sin(angle) * this.targetDistance + this.vx * 20;
-      this.targetY = 0.5*Math.cos(angle) * this.targetDistance + this.vy * 20;
+      this.targetX = this.x + 0.5*-Math.sin(angle) * this.targetDistance + this.vx * 20;
+      this.targetY = this.y + 0.5*Math.cos(angle) * this.targetDistance + this.vy * 20;
       
       this.radius = 1;
       this.isX = Math.random() > 0.5 ? true : false;
       this.filled = Math.random() > 0.5 ? true : false;
       this.targetStrokeSize = Math.round(Math.random() * this.maxRadius/2);
+      this.color = 'hsl('+ [Math.random()*360, '100%', '50%'].join(", ") + ')';
       
       this.draw();
+      
+      this.canvas.style.webkitTransition = "1.5s linear";
+    },
+    animate : function(){
+      this.canvas.addEventListener('webkitTransitionEnd', this.targetArrived.bind(this));
+      
+      document.redraw();
+      
+      this.canvas.style.webkitTransform = 'translate3d('+ this.targetX +'px,'+ this.targetY +'px,0) scale(1)'; 
+      this.canvas.style.opacity = 0;
     },
     draw : function(){
       var center = this.maxRadius+this.targetStrokeSize/2;
@@ -79,7 +91,7 @@
       this.canvas.width = center*2;
       this.canvas.height = center*2;
       
-      this.canvas.style.webkitTransform = 'translate3d('+ this.x +'px,'+ this.y +'px,0) scale(0)'; 
+      this.canvas.style.webkitTransform = 'translate3d('+ this.x +'px,'+ this.y +'px,0) scale(0.1)'; 
       this.canvas.style.margin = -center+"px 0 0 "+ (-center) + "px";
       
       this.ctx.beginPath();
@@ -118,20 +130,19 @@
         this.ctx.restore();
       }
     },
-    update : function(){
-      this.distance++;
-      this.percentage = this.distance/this.targetDistance;
-      
-      // move
-      this.x = this.startX + this.targetX * this.percentage;
-      this.y = this.startY + this.targetY * this.percentage;
-      
-      return this.targetDistance < this.distance;
+    targetArrived : function(event){
+      if(event.propertyName === 'opacity')
+        this.remove(this);
+    },
+    is : function(bubble){
+      return bubble.canvas.id === this.canvas.id;
     }
   };
   
   function World(element){
     this.element = element;
+    // DEBUG:
+    this.countElement = document.querySelector('.count');
     
     this.idCount = 0;
     
@@ -145,24 +156,13 @@
     
     this.distanceToLastBubble = 0;
     
-    this.keyTable = {
-      38 : "top",
-      39 : "right",
-      40 : "bottom",
-      37 : "left"
-    };
+    this.bubbles = new Array();
     
     this.inputPressed = false;
-    document.addEventListener('keydown', this.keydown.bind(this));
-    document.addEventListener('keyup', this.keyup.bind(this));
     document.addEventListener(isTouchDevice ? 'touchmove' : 'mousemove', this.moveHandler.bind(this));
     document.addEventListener(isTouchDevice ? 'touchstart' : 'mousedown', this.inputDown.bind(this));
     document.addEventListener(isTouchDevice ? 'touchend' : 'mouseup', this.inputUp.bind(this));
     
-    
-    this.countElement = document.querySelector('.count');
-    
-    this.bubbles = new Array();
     this.render();
   }
   
@@ -171,27 +171,11 @@
       requestAnimFrame( this.render.bind(this) );
       
       this.countElement.innerText = this.bubbles.length;
-      
-      this.positionX += this.velocityX;
-      this.positionY += this.velocityY;
-      
-      // if the user moves, generate a new bubble and add it to the dom
-      if(this.velocityX || this.velocityY) this.newBubble();
-      
-      for(var i=0; i<this.bubbles.length; i++){
-        var bubble = this.bubbles[i];
-        var hasArrivedAtTargetPosition = bubble.update();
-        
-        
-        // update css position, opacity and size
-        bubble.canvas.style.webkitTransform = 'translate3d('+ bubble.x +'px,'+ bubble.y +'px,0) scale('+ bubble.percentage +')'; 
-        bubble.canvas.style.opacity = 1-bubble.percentage;
-        
-        if(hasArrivedAtTargetPosition){
-          this.element.removeChild( document.getElementById(bubble.canvas.id) );
-          this.bubbles.splice(i,1)[0];
-        }
-      }
+    },
+    removeBubble : function(bubble){
+      this.element.removeChild( document.getElementById(bubble.canvas.id) );
+      for(var i=0; i<this.bubbles.length; i++)
+        if(this.bubbles[i].is(bubble)) this.bubbles.splice(i,1)[0];
     },
     newId : function(){
       return this.idCount++;
@@ -200,21 +184,19 @@
       this.distanceToLastBubble++;
       
       if(Math.random() < this.distanceToLastBubble/50 || this.inputPressed){
-        var bubble = new Bubble(this.newId(), this.positionX, this.positionY, this.velocityX, this.velocityY);
+        var id = this.newId();
+        var bubble = new Bubble(id, this.positionX, this.positionY, this.velocityX, this.velocityY, this.removeBubble.bind(this));
         this.bubbles.push(bubble);
         
         this.element.appendChild(bubble.canvas);
+        bubble.canvas = document.getElementById(id);
+        bubble.animate();
         
         this.distanceToLastBubble = 0;
       }
     },
-    keydown : function(event){
-      this.move( this.keyTable[event.keyCode] );
-    },
-    keyup : function(event){
-      this.stopToMove( this.keyTable[event.keyCode] );
-    },
     inputDown : function(event){
+      event.preventDefault();
       this.inputPressed = true;
       this.moveHandler();
     },
@@ -235,32 +217,6 @@
       this.positionY = normalizedY(event);
       
       this.newBubble();
-    },
-    move : function(direction){
-      switch(direction){
-        case 'left':
-          this.velocityX = -this.speed;
-          break;            
-        case 'top':         
-          this.velocityY = -this.speed;
-          break;            
-        case 'right':       
-          this.velocityX = this.speed;
-          break;            
-        case 'bottom':      
-          this.velocityY = this.speed;
-          break;
-      }
-    },
-    stopToMove : function(direction){
-      switch(direction){
-        case 'left': case 'right':
-          this.velocityX = 0;
-          break;
-        case 'top': case 'bottom':
-          this.velocityY = 0;
-          break;
-      }
     }
   };
   
