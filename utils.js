@@ -27,3 +27,25 @@ redraw function to make sure that transitions are triggered
     document.redraw = redraw;
 
 }(document);
+
+// shim layer with setTimeout fallback
+window.requestAnimFrame = (function(){
+  return  window.requestAnimationFrame       || 
+          window.webkitRequestAnimationFrame || 
+          window.mozRequestAnimationFrame    || 
+          window.oRequestAnimationFrame      || 
+          window.msRequestAnimationFrame     || 
+          function( callback ){
+            window.setTimeout(callback, 1000 / 60);
+          };
+})();
+
+var isTouchDevice = 'ontouchstart' in document.documentElement ? true : false;
+
+function normalizedX(event){
+  return isTouchDevice ? event.touches[0].pageX : event.pageX;
+}
+
+function normalizedY(event){
+  return isTouchDevice ? event.touches[0].pageY : event.pageY;
+}
