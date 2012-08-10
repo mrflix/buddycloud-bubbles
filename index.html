@@ -1,0 +1,243 @@
+<!doctype html>
+<title>Bubble Game</title>
+<script>document.write('<script src="http://' + (location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1"></' + 'script>')</script>
+<style>
+  html, body { 
+    margin: 0;
+    overflow: hidden;
+    background: #eee;
+  }
+</style>
+<canvas></canvas>
+<script>
+  // shim layer with setTimeout fallback
+  window.requestAnimFrame = (function(){
+    return  window.requestAnimationFrame       || 
+            window.webkitRequestAnimationFrame || 
+            window.mozRequestAnimationFrame    || 
+            window.oRequestAnimationFrame      || 
+            window.msRequestAnimationFrame     || 
+            function( callback ){
+              window.setTimeout(callback, 1000 / 60);
+            };
+  })();
+  
+  var isTouchDevice = 'ontouchstart' in document.documentElement ? true : false;
+  
+  function normalizedX(event){
+    return isTouchDevice ? event.touches[0].pageX : event.pageX;
+  }
+
+  function normalizedY(event){
+    return isTouchDevice ? event.touches[0].pageY : event.pageY;
+  }
+  
+  function Bubble(x, y, vx, vy){
+    this.startX = this.x = x;
+    this.startY = this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.maxRadius = 34;
+    this.hsl = [Math.random()*360, '100%', '50%'];
+    this.generate();
+  }
+  
+  Bubble.prototype = {
+    generate : function(){
+      var angle = Math.PI * Math.random();
+      
+      this.targetDistance = 10 + Math.random() * 150;
+      this.distance = 0;
+      
+      this.targetX = 0.5*-Math.sin(angle) * this.targetDistance + this.vx * 20;
+      this.targetY = 0.5*Math.cos(angle) * this.targetDistance + this.vy * 20;
+      
+      this.radius = 1;
+      this.isX = Math.random() > 0.5 ? true : false;
+      this.filled = Math.random() > 0.5 ? true : false;
+      this.targetStrokeSize = Math.round(Math.random() * this.maxRadius/2);
+    },
+    update : function(){
+      this.distance++;
+      var percentage = this.distance/this.targetDistance;
+      
+      // move
+      this.x = this.startX + this.targetX * percentage;
+      this.y = this.startY + this.targetY * percentage;
+      
+      // fade out
+      this.color = "hsla("+ this.hsl.join(", ") +","+ (1 - percentage) +")";
+      
+      // get bigger
+      this.radius = percentage * this.maxRadius;
+      this.strokeSize = this.targetStrokeSize * percentage * 2;
+      
+      return this.targetDistance < this.distance;
+    }
+  };
+  
+  function World(canvas){
+    this.canvas = canvas;
+    this.ctx = this.canvas.getContext('2d');
+    
+    this.positionX = this.canvas.width/2;
+    this.positionY = this.canvas.height/2;
+    
+    this.velocityX = 0;
+    this.velocityY = 0;
+    
+    this.speed = 4;
+    
+    this.distanceToLastBubble = 0;
+    
+    this.keyTable = {
+      38 : "top",
+      39 : "right",
+      40 : "bottom",
+      37 : "left"
+    };
+    
+    this.inputPressed = false;
+    document.addEventListener('keydown', this.keydown.bind(this));
+    document.addEventListener('keyup', this.keyup.bind(this));
+    document.addEventListener(isTouchDevice ? 'touchmove' : 'mousemove', this.moveHandler.bind(this));
+    document.addEventListener(isTouchDevice ? 'touchstart' : 'mousedown', this.inputDown.bind(this));
+    document.addEventListener(isTouchDevice ? 'touchend' : 'mouseup', this.inputUp.bind(this));
+    
+    this.bubbles = new Array();
+    this.render();
+  }
+  
+  World.prototype = {
+    render : function(){
+      requestAnimFrame( this.render.bind(this) );
+      
+      // erase canvas
+      this.canvas.width = this.canvas.width;
+      
+      this.positionX += this.velocityX;
+      this.positionY += this.velocityY;
+      
+      // if you're moving, generate a new bubble
+      if(this.velocityX || this.velocityY) this.newBubble();
+      
+      for(var i=0; i<this.bubbles.length; i++){
+        var hasArrivedAtTargetPosition = this.bubbles[i].update();
+        
+        if(hasArrivedAtTargetPosition){
+          this.bubbles.splice(i,1);
+        } else {
+          this.drawCircle(this.bubbles[i].x, this.bubbles[i].y, this.bubbles[i].radius, this.bubbles[i].color, this.bubbles[i].strokeSize, this.bubbles[i].filled, this.bubbles[i].isX);
+        }
+      }
+      
+      // draw player on top
+      //this.drawCircle(this.positionX, this.positionY, 144, 'hsla(5,100%,50%,.34)');
+    },
+    newBubble : function(){
+      this.distanceToLastBubble++;
+      
+      if(Math.random() < this.distanceToLastBubble/50 || this.inputPressed){
+        this.bubbles.push( new Bubble(this.positionX, this.positionY, this.velocityX, this.velocityY) );
+        this.distanceToLastBubble = 0;
+      }
+    },
+    drawCircle : function(x, y, radius, color, strokeSize, filled, isX){
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, radius, 0, 2 * Math.PI, true);
+      if(strokeSize && !isX){
+        this.ctx.lineWidth = strokeSize;
+        this.ctx.strokeStyle = color;
+        this.ctx.stroke();
+      }
+      if(!strokeSize || (isX && filled)){
+        this.ctx.fillStyle = color;
+        this.ctx.fill();
+      }
+      if(isX){
+        var v = 0.47*radius;
+        
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.lineWidth = radius/4;
+        this.ctx.lineCap = "round";
+        
+        if(filled){
+          this.ctx.strokeStyle = "black";
+          this.ctx.globalCompositeOperation = "destination-out";
+        } else {
+          this.ctx.strokeStyle = color;
+        }
+        
+        this.ctx.moveTo(x-v, y-v);
+        this.ctx.lineTo(x+v, y+v);
+        this.ctx.moveTo(x+v, y-v);
+        this.ctx.lineTo(x-v, y+v);
+        
+        this.ctx.stroke();
+        this.ctx.restore();
+      }
+    },
+    keydown : function(event){
+      this.move( this.keyTable[event.keyCode] );
+    },
+    keyup : function(event){
+      this.stopToMove( this.keyTable[event.keyCode] );
+    },
+    inputDown : function(event){
+      this.inputPressed = true;
+      this.moveHandler();
+    },
+    inputUp : function(){
+      this.inputPressed = false;
+    },
+    moveHandler : function(event){
+      this.velocityX = normalizedX(event) - this.positionX;
+      this.velocityY = normalizedY(event) - this.positionY;
+      
+      if(this.velocityX < -0.5) this.velocityX = -this.speed;
+      if(this.velocityX >  0.5) this.velocityX =  this.speed;
+      
+      if(this.velocityY < -0.5) this.velocityY = -this.speed;
+      if(this.velocityY >  0.5) this.velocityY =  this.speed;
+      
+      this.positionX = normalizedX(event);
+      this.positionY = normalizedY(event);
+      
+      this.newBubble();
+    },
+    move : function(direction){
+      switch(direction){
+        case 'left':
+          this.velocityX = -this.speed;
+          break;            
+        case 'top':         
+          this.velocityY = -this.speed;
+          break;            
+        case 'right':       
+          this.velocityX = this.speed;
+          break;            
+        case 'bottom':      
+          this.velocityY = this.speed;
+          break;
+      }
+    },
+    stopToMove : function(direction){
+      switch(direction){
+        case 'left': case 'right':
+          this.velocityX = 0;
+          break;
+        case 'top': case 'bottom':
+          this.velocityY = 0;
+          break;
+      }
+    }
+  };
+  
+  var canvas = document.querySelector('canvas');
+  
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  
+  var world = new World(canvas);
+</script>
